@@ -1,0 +1,26 @@
+# PDF 文本抽取缓存（可重建，不入库）
+data/cache/
+
+# Agent 运行轨迹（阶段 8 的实验原始数据放在本地，不入库）
+traces/
+
+# 本地 LLM 配置（含 API key，绝不入库；模板见 .llm.env.example）
+.llm.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# 评测/实验产物
+evaluation/results.csv
+experiments/figures/
+tools/figures/
+
+# 编辑器
+.DS_Store
+.idea/
+.vscode/

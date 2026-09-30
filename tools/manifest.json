@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "skill": "paper-reading",
+  "note": "Tool 契约清单：Agent Loop（第四阶段）按这里的 name/parameters 生成 action，command 告诉 Executor 怎么真正调用。Skill 规定'怎么用'，本文件规定'能做什么'。",
+  "conventions": {
+    "json_flag": "--json",
+    "error_signal": "exit code 2 + stderr 单行可读文本（ToolError），不是 traceback",
+    "citation": "所有读取结果都带页码，报告中引用格式为 [p.N]"
+  },
+  "tools": [
+    {
+      "name": "read_pdf",
+      "module": "tools/pdf_reader.py",
+      "description": "按页读取论文 PDF 文本，保留页码；也支持文档内关键词定位与章节大纲。阅读论文、核对事实、找某句话在第几页时用。",
+      "when_to_use": "需要论文原文内容或页码出处时；SKILL.md 阅读流程第 1-4 步的主力工具。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["info", "read", "search", "outline"], "description": "info=元信息；read=按页读正文；search=文档内检索；outline=章节大纲"},
+          "pdf": {"type": "string", "description": "PDF 路径，通常形如 paper/<paper_id>.pdf"},
+          "pages": {"type": "string", "description": "页范围，如 `1-3,8`；read 用，省略则全文"},
+          "query": {"type": "string", "description": "search 用的检索词"},
+          "max_chars": {"type": "integer", "description": "每页输出上限，防止上下文被单页撑爆"},
+          "clean": {"type": "boolean", "description": "删除多页重复的期刊页眉页脚"}
+        },
+        "required": ["action", "pdf"]
+      },
+      "returns": {
+        "read": "{paper_id, pages_total, pages_read[], text, truncated, warnings[]}",
+        "info": "{paper_id, pages_total, chars_per_page[], has_text_layer, warnings[]}",
+        "search": "{query, hit_count, hits[{page, snippet}]}",
+        "outline": "{source: pdf-bookmarks|heuristic, outline[{heading, page}]}"
+      },
+      "command": "python3 tools/pdf_reader.py {action} {pdf} [--pages P] [--max-chars N] [--clean] [--json]"
+    },
+    {
+      "name": "search_paper",
+      "module": "tools/paper_search.py",
+      "description": "论文检索：默认在本地 paper/ 语料里定位关键词在哪篇哪页（离线）；也可查 arXiv / Crossref 找论文之外的背景概念、方法名、benchmark。",
+      "when_to_use": "论文内部找不到答案（SKILL.md 流程第 7 步'补缺'）、需要跨论文比较、或需要确认某术语出自何处时。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "检索词；空格分隔为多词"},
+          "source": {"type": "string", "enum": ["local", "arxiv", "crossref", "web", "all"], "description": "默认 local（离线，不联网）"},
+          "mode": {"type": "string", "enum": ["all", "any"], "description": "多词项是'全部命中'还是'任一命中'，默认 all"},
+          "top": {"type": "integer", "description": "本地返回的论文条数上限"},
+          "max_results": {"type": "integer", "description": "每个联网来源的条数上限"}
+        },
+        "required": ["query"]
+      },
+      "returns": {
+        "local": "{query, terms[], result_count, results[{paper_id, title, best_page, matched_terms[], missing_terms[], hits[{page, snippets[]}]}]}",
+        "web": "{sources[], result_count, results[{source, title, authors[], year, venue, doi, url, abstract}], warnings[]}"
+      },
+      "command": "python3 tools/paper_search.py search \"{query}\" [--source local|arxiv|crossref|web|all] [--mode all|any] [--json]"
+    },
+    {
+      "name": "analyze_table",
+      "module": "tools/table_analyzer.py",
+      "description": "对论文里的结果表/消融表做统计：先把 PDF 正文里版式对齐的表格抽成 Markdown（extract），再算均值、方差、极值、中位数、逐行差值、排名、分组聚合、相对 baseline 的增益与胜负。不猜数字，只算数字。",
+      "when_to_use": "报告里要写'高了多少''哪个最好''删掉哪个组件掉几个点'时；SKILL.md 流程第 4、6 步的证据核对。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["describe", "rank", "diff", "compare", "group", "plot", "extract"], "description": "extract=从 read_pdf 的输出文本里抽候选表格；describe=列统计；rank=按列排名；diff=两列逐行差；compare=相对 baseline（列或行）增益；group=分组聚合；plot=画图"},
+          "table": {"type": "string", "description": "表格文件（CSV/TSV/Markdown/JSON）或 `-` 读标准输入"},
+          "by": {"type": "string", "description": "rank/group 的目标列"},
+          "a": {"type": "string", "description": "diff 的被减列"},
+          "b": {"type": "string", "description": "diff 的减数列"},
+          "baseline": {"type": "string", "description": "compare 的 baseline 列名或行名"},
+          "label": {"type": "string", "description": "行名列"},
+          "columns": {"type": "string", "description": "限定分析的列，逗号分隔"},
+          "lower_is_better": {"type": "string", "description": "越小越好的列（Cost/Latency），逗号分隔"},
+          "pick": {"type": "integer", "description": "extract 时选定第 N 个候选表"},
+          "out": {"type": "string", "description": "extract --pick 时把选定的表写成 Markdown 文件，供后续命令复用"}
+        },
+        "required": ["action", "table"]
+      },
+      "returns": "{operation, ...统计字段, 统计表}；`--json` 时给结构化结果（extract 返回 tables[{index, kind, start_line, end_line, headers, rows, markdown}]）",
+      "command": "python3 tools/table_analyzer.py {action} {table} [--min-rows N] [--pick N --out FILE] [--by COL] [--a A --b B] [--baseline NAME --label COL] [--json]"
+    }
+  ]
+}

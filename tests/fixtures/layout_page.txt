@@ -1,0 +1,13 @@
+[Page 8]
+Table 2: Main results on three benchmarks.
+
+Method            Memory     Planning    Tool Use
+Baseline          61.2       55.4        48.9
+ReAct             68.5       60.1        57.3
+Ours (full)       74.8       66.9        63.5
+Ours - search     71.0       62.4        58.1
+
+As shown above, the proposed method improves over the strongest
+baseline by a clear margin across all three benchmark families
+considered in this study, which is consistent with the ablation
+results reported in the previous section of this paper.
